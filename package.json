@@ -1,0 +1,25 @@
+{
+  "name": "cache-nomad",
+  "version": "1.0.0",
+  "description": "A dead-simple, local-first syncing library for offline state and background updates.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "vitest run --environment jsdom"
+  },
+  "keywords": [
+    "cache",
+    "offline",
+    "sync",
+    "local-first",
+    "nomad"
+  ],
+  "author": "Sabtain Ali",
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vitest": "^5.0.4"
+  }
+}

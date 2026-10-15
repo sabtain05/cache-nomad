@@ -2,7 +2,6 @@
 
 > A dead-simple, local-first syncing library that handles offline state and background updates without the bloat of a massive framework.
 
-[![npm version](https://img.shields.io/npm/v/cache-nomad.svg?style=flat)](https://www.npmjs.com/package/cache-nomad)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Keeping data accurate and fast across an application is notoriously difficult. Developers constantly struggle with sync lag, offline states, and race conditions. `cache-nomad` solves the complexity trap using a lightweight, framework-agnostic approach.

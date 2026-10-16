@@ -106,5 +106,6 @@ Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details on how to contribute
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ---
-
+<p align="center">
 <strong>A Sabtain Ali production</strong>
+</p>

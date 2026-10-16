@@ -1,6 +1,6 @@
 {
   "name": "cache-nomad",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A dead-simple, local-first syncing library for offline state and background updates.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

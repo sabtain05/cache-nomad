@@ -1,111 +1,130 @@
 # cache-nomad
 
-> A dead-simple, local-first syncing library that handles offline state and background updates without the bloat of a massive framework.
+A dead-simple, local-first syncing library that handles offline state, optimistic updates, and background syncing without the bloat of a massive framework.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Keeping data accurate and fast across an application is notoriously difficult. Developers constantly struggle with sync lag, offline states, and race conditions. **cache-nomad** escapes the complexity trap by moving the source of truth to the client device. 
 
-Keeping data accurate and fast across an application is notoriously difficult. Developers constantly struggle with sync lag, offline states, and race conditions. `cache-nomad` solves the complexity trap using a lightweight, framework-agnostic approach.
+Your data travels with the user, functions independently offline, and syncs up whenever it finds a connection.
 
 ## Features
 
-- **Instant Reads (Stale-While-Revalidate):** Data is served from the local cache instantly, while a background fetch keeps it fresh.
-- **Optimistic UI Mutations:** UI updates instantly when a user makes a change. No waiting for network requests.
-- **Built-in Offline Support:** Network requests are stored in a local queue. If the user is offline, actions wait safely until `navigator.onLine` fires, then process sequentially.
-- **Zero Dependencies:** Written in pure, strict TypeScript.
-- **Framework Agnostic:** Use it with Vanilla JS, React, Vue, Svelte, or Angular.
+* **Instant Reads (Stale-While-Revalidate):** UI renders instantly from local storage while fetching fresh data in the background.
+* **Optimistic UI:** State updates immediately on the client before the server confirms the change.
+* **Offline-First Action Queue:** Network requests are queued when offline and automatically processed when `navigator.onLine` is restored.
+* **Native React Hook:** Comes with a built-in `useNomad` hook for seamless React integration.
+* **Zero Dependencies:** A tiny, framework-agnostic vanilla TypeScript core.
 
 ## Installation
 
 ```bash
 npm install cache-nomad
+
 ```
 
-## Quick Start
+## Usage: React (v1.5.0+)
 
-Because `cache-nomad` handles the offline state and cache persistence internally, you only need to define *how* to talk to your server.
+`cache-nomad` includes a native React adapter that handles all the subscription lifecycle events for you.
 
-### 1. Register Backend Actions
+First, register how your app talks to your backend (do this once, e.g., in `App.tsx` or `index.ts`):
 
-Tell Nomad how to execute your network requests.
-
-```typescript
+```tsx
 import { nomad } from 'cache-nomad';
 
-// Register an action to save data to your server
+// Tell Nomad how to save data to your server
 nomad.registerAction('SAVE_NOTE', async (payload) => {
   const response = await fetch('/api/notes', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
-  if (!response.ok) throw new Error('Failed to save');
-});
-```
-
-### 2. Query and Subscribe
-
-Fetch data (with stale-while-revalidate) and listen for changes to update your UI.
-
-```typescript
-// Subscribe to a cache key
-const unsubscribe = nomad.subscribe('my-notes', (notes) => {
-  console.log('Notes updated:', notes);
-  // renderUI(notes); 
+  if (!response.ok) throw new Error('Failed to save note');
 });
 
-// Fetch data (returns instantly from cache, updates in background)
-async function loadNotes() {
-  const notes = await nomad.query('my-notes', async () => {
-    const res = await fetch('/api/notes');
-    return res.json();
-  });
-}
 ```
 
-### 3. Mutate Data Optimistically
+Then, use the `useNomad` hook inside any component:
 
-When a user acts, update the UI instantly and let Nomad handle the network and offline queueing.
+```tsx
+import { useNomad } from 'cache-nomad/react';
 
-```typescript
-function handleUserCreatingNote(newNote) {
-  // 1. Get current state
-  const currentNotes = nomad.query('my-notes', fetchNotesFromServer) || [];
-  
-  // 2. Prepare optimistic state
-  const optimisticNotes = [...currentNotes, newNote];
+// A simple fetcher function for background updates
+const fetchNotes = () => fetch('/api/notes').then(r => r.json());
 
-  // 3. Mutate! 
-  nomad.mutate(
-    'my-notes',           // The cache key to update instantly
-    optimisticNotes,      // The new data to show the user right now
-    'SAVE_NOTE',          // The server action to run in the background
-    { note: newNote }     // The payload to send to the server
+export function NotesApp() {
+  // 1. Automatically serves cached data instantly, then fetches fresh data in background
+  const { data: notes, mutate } = useNomad('my-notes', fetchNotes);
+
+  const handleAddNote = (text: string) => {
+    const newNote = { id: Date.now(), text };
+    const optimisticNotes = [...(notes || []), newNote];
+
+    // 2. Instantly updates the UI, and handles the network queue safely in the background
+    mutate(
+      optimisticNotes, // The data to show the user right now
+      'SAVE_NOTE',     // The registered server action to trigger
+      newNote          // The payload to send to the server
+    );
+  };
+
+  return (
+    <div>
+      {notes?.map(note => <div key={note.id}>{note.text}</div>)}
+      <button onClick={() => handleAddNote('Hello World!')}>Add Note</button>
+    </div>
   );
 }
+
 ```
 
-## API Reference
+## Usage: Vanilla JS / Framework-Agnostic
 
-### `nomad.query(key: string, fetcher: () => Promise<any>): Promise<any>`
-Returns data from the local cache instantly (if it exists) while simultaneously running the `fetcher` function in the background to update the cache.
+If you aren't using React, you can use the core `nomad` singleton directly to power Vanilla JS, Vue, Svelte, or any other web environment.
 
-### `nomad.mutate(cacheKey: string, optimisticData: any, actionName: string, payload: any): void`
-Instantly updates the local cache for `cacheKey` with `optimisticData`, triggering any subscribers. Simultaneously pushes an action to the offline-safe queue to run `actionName` with `payload`.
+```typescript
+import { nomad } from 'cache-nomad';
 
-### `nomad.subscribe(key: string, listener: (data: any) => void): () => void`
-Listens for any changes to a specific `key`. Returns an unsubscribe function.
+// 1. Register backend actions
+nomad.registerAction('UPDATE_USER', async (payload) => {
+  await fetch('/api/user', { method: 'PUT', body: JSON.stringify(payload) });
+});
 
-### `nomad.registerAction(actionName: string, handler: (payload: any) => Promise<any>): void`
-Registers a background network handler that Nomad will execute when processing the queue.
+// 2. Subscribe a UI component to a cache key
+const unsubscribe = nomad.subscribe('current-user', (user) => {
+  document.getElementById('username').innerText = user.name;
+});
+
+// 3. Query data (returns local cache instantly, fetches fresh in background)
+const user = await nomad.query('current-user', fetchUserFromServer);
+
+// 4. Mutate data optimistically
+document.getElementById('save-btn').addEventListener('click', () => {
+  const newName = 'Alice';
+  
+  nomad.mutate(
+    'current-user',         // Cache key
+    { name: newName },      // Optimistic data
+    'UPDATE_USER',          // Server action name
+    { name: newName }       // Server payload
+  );
+});
+
+```
+
+## How It Works
+
+1. **The Cache:** Data is stored in memory and persisted to `localStorage`. `query()` always returns this local data first so your app never blocks the main thread waiting for a network response.
+2. **The Queue:** When you call `mutate()`, the new state is saved locally, and an Action is pushed to an offline queue.
+3. **The Sync:** If the user is online, the queue is processed immediately. If they are offline, the queue sleeps in `localStorage`. When the browser fires the `window.ononline` event, the queue wakes up and processes the pending actions in the exact order they were triggered.
 
 ## Contributing
 
-Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details on how to contribute to this project.
+We welcome contributions! Please see CONTRIBUTING.md for details on how to set up the repository, run tests, and submit Pull Requests.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+MIT
 
 ---
+
 <p align="center">
 <strong>A Sabtain Ali production</strong>
 </p>

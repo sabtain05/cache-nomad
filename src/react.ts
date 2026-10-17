@@ -3,4 +3,6 @@ import { nomad } from './index';
 
 export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
     const [data, setData] = useState<T | undefined>(undefined);
+
+    useEffect(() => {})
 }

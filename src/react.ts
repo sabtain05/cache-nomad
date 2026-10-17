@@ -17,5 +17,7 @@ export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
         };
     }, [key]);
 
-    
+    const mutate = useCallback(
+        (optimisticData: T, actionName: string, payload: any) => {}
+    )
 }

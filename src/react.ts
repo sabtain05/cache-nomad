@@ -9,6 +9,8 @@ export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
             setData(newData);
         });
 
-        if (fetcher) {}
+        if (fetcher) {
+            nomad.query(key, fetcher);
+        }
     })
 }

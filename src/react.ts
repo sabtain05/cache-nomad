@@ -1,2 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
 import { nomad } from './index';
+
+export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {}

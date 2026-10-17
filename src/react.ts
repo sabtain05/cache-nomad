@@ -12,5 +12,10 @@ export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
         if (fetcher) {
             nomad.query(key, fetcher);
         }
-    })
+        return () => {
+            unsubscribe();
+        };
+    }, [key]);
+
+    
 }

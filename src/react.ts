@@ -5,6 +5,8 @@ export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
     const [data, setData] = useState<T | undefined>(undefined);
 
     useEffect(() => {
-        const unsubscribe = nomad.subscribe(key, (newData: T) => {})
+        const unsubscribe = nomad.subscribe(key, (newData: T) => {
+            setData(newData);
+        });
     })
 }

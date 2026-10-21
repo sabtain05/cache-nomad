@@ -30,4 +30,26 @@ describe('CacheNomad', () => {
     expect(stored.queue.length).toBe(1);
     expect(stored.queue[0].action).toBe('SAVE_NOTE');
   });
+
+  it('should sync data across tabs when storage event fires', () => {
+    let firedData = null;
+    
+    nomad.subscribe('settings', (data) => {
+      firedData = data;
+    });
+
+    const mockStorageData = JSON.stringify({
+      cache: { settings: { theme: 'dark' } },
+      queue: []
+    });
+
+    const event = new window.StorageEvent('storage', {
+      key: 'cache-nomad-data',
+      newValue: mockStorageData
+    });
+
+    window.dispatchEvent(event);
+
+    expect(firedData).toEqual({ theme: 'dark' });
+  });
 });

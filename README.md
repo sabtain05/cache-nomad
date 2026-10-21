@@ -11,6 +11,7 @@ Your data travels with the user, functions independently offline, and syncs up w
 * **Instant Reads (Stale-While-Revalidate):** UI renders instantly from local storage while fetching fresh data in the background.
 * **Optimistic UI:** State updates immediately on the client before the server confirms the change.
 * **Offline-First Action Queue:** Network requests are queued when offline and automatically processed when `navigator.onLine` is restored.
+* **Cross-Tab Sync:** Automatically syncs state across multiple browser tabs in real-time.
 * **Native React Hook:** Comes with a built-in `useNomad` hook for seamless React integration.
 * **Zero Dependencies:** A tiny, framework-agnostic vanilla TypeScript core.
 
@@ -51,13 +52,14 @@ const fetchNotes = () => fetch('/api/notes').then(r => r.json());
 
 export function NotesApp() {
   // 1. Automatically serves cached data instantly, then fetches fresh data in background
+  // 2. Instantly syncs if the user opens the app in another browser tab!
   const { data: notes, mutate } = useNomad('my-notes', fetchNotes);
 
   const handleAddNote = (text: string) => {
     const newNote = { id: Date.now(), text };
     const optimisticNotes = [...(notes || []), newNote];
 
-    // 2. Instantly updates the UI, and handles the network queue safely in the background
+    // 3. Instantly updates the UI, and handles the network queue safely in the background
     mutate(
       optimisticNotes, // The data to show the user right now
       'SAVE_NOTE',     // The registered server action to trigger
@@ -87,7 +89,7 @@ nomad.registerAction('UPDATE_USER', async (payload) => {
   await fetch('/api/user', { method: 'PUT', body: JSON.stringify(payload) });
 });
 
-// 2. Subscribe a UI component to a cache key
+// 2. Subscribe a UI component to a cache key (auto-updates across tabs!)
 const unsubscribe = nomad.subscribe('current-user', (user) => {
   document.getElementById('username').innerText = user.name;
 });
@@ -114,6 +116,7 @@ document.getElementById('save-btn').addEventListener('click', () => {
 1. **The Cache:** Data is stored in memory and persisted to `localStorage`. `query()` always returns this local data first so your app never blocks the main thread waiting for a network response.
 2. **The Queue:** When you call `mutate()`, the new state is saved locally, and an Action is pushed to an offline queue.
 3. **The Sync:** If the user is online, the queue is processed immediately. If they are offline, the queue sleeps in `localStorage`. When the browser fires the `window.ononline` event, the queue wakes up and processes the pending actions in the exact order they were triggered.
+4. **Cross-Tab Magic:** If a mutation happens in one tab, the `window.onstorage` event instantly wakes up all other tabs running `cache-nomad` and syncs their UI states seamlessly.
 
 ## Contributing
 

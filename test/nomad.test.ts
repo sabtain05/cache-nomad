@@ -1,55 +1,63 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CacheNomad } from '../src/index';
+import { LocalStorageAdapter } from '../src/adapters';
 
-describe('CacheNomad', () => {
+describe('CacheNomad v3', () => {
   let nomad: CacheNomad;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
-    nomad = new CacheNomad();
+    
+
+    nomad = new CacheNomad(new LocalStorageAdapter());
+    await nomad.init();
   });
 
-  it('should instantly return local data and update subscribers', () => {
-    let firedData = null;
+  it('should store and query data asynchronously', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ user: 'Alice' });
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+
+    const data = await nomad.query('user-profile', fetcher);
     
-    nomad.subscribe('user', (data) => {
-      firedData = data;
-    });
-
-    nomad.mutate('user', { name: 'Alice' }, 'SAVE_USER', { name: 'Alice' });
-
-    expect(firedData).toEqual({ name: 'Alice' });
+    expect(fetcher).toHaveBeenCalled();
+    expect(data).toEqual({ user: 'Alice' });
   });
 
-  it('should queue actions when mutating', () => {
-    nomad.mutate('note', { text: 'Hello' }, 'SAVE_NOTE', { text: 'Hello' });
-    
-    const stored = JSON.parse(localStorage.getItem('cache-nomad-data') || '{}');
-    
-    expect(stored.cache['note']).toEqual({ text: 'Hello' });
-    expect(stored.queue.length).toBe(1);
-    expect(stored.queue[0].action).toBe('SAVE_NOTE');
+  it('should queue and process actions', async () => {
+    let serverReceived = null;
+
+    nomad.registerAction('UPDATE_NAME', async (payload) => {
+      serverReceived = payload;
+    });
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+
+    await nomad.mutate('user-profile', { name: 'Bob' }, 'UPDATE_NAME', { name: 'Bob' });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(serverReceived).toEqual({ name: 'Bob' });
   });
 
-  it('should sync data across tabs when storage event fires', () => {
-    let firedData = null;
+  it('should execute middleware interceptors', async () => {
+    let receivedToken = null;
+
+    nomad.registerAction('SECURE_ACTION', async (payload) => {
+      receivedToken = payload.token;
+    });
+
+    nomad.addInterceptor(async (action) => {
+      action.payload.token = 'super-secret-jwt';
+      return action;
+    });
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+
+    await nomad.mutate('data', { id: 1 }, 'SECURE_ACTION', { id: 1 });
     
-    nomad.subscribe('settings', (data) => {
-      firedData = data;
-    });
+    await new Promise((r) => setTimeout(r, 10));
 
-    const mockStorageData = JSON.stringify({
-      cache: { settings: { theme: 'dark' } },
-      queue: []
-    });
-
-    const event = new window.StorageEvent('storage', {
-      key: 'cache-nomad-data',
-      newValue: mockStorageData
-    });
-
-    window.dispatchEvent(event);
-
-    expect(firedData).toEqual({ theme: 'dark' });
+    expect(receivedToken).toEqual('super-secret-jwt');
   });
 });

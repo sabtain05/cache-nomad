@@ -1,124 +1,203 @@
-type Listener = (data: any) => void;
-type ActionHandler = (payload: any) => Promise<any>;
+export interface StorageAdapter {
+  get(key: string): Promise<any>;
+  set(key: string, value: any): Promise<void>;
+  remove(key: string): Promise<void>;
+}
 
-interface QueuedAction {
+export interface QueuedAction {
   id: string;
   action: string;
   payload: any;
+  cacheKey: string;
+  rollbackData: any;
   timestamp: number;
+  priority: number;  
+  attempts: number; 
 }
 
+interface CacheItem {
+  data: any;
+  updatedAt: number;
+  ttl?: number; 
+}
+
+type ActionHandler = (payload: any) => Promise<any>;
+type Listener = (data: any) => void;
+type Interceptor = (action: QueuedAction) => Promise<QueuedAction | null>;
+
 export class CacheNomad {
-  private cache: Record<string, any> = {};
-  private subscribers: Record<string, Set<Listener>> = {};
+  private cache: Record<string, CacheItem> = {};
   private queue: QueuedAction[] = [];
   private actionHandlers: Record<string, ActionHandler> = {};
-  private storageKey = 'cache-nomad-data';
+  private subscribers: Record<string, Set<Listener>> = {};
 
-  constructor() {
-    this.hydrate();
+  private storage: StorageAdapter;
+  private interceptors: { beforeProcess: Interceptor[] } = { beforeProcess: [] };
+  private isProcessing = false;
+
+  constructor(storageAdapter: StorageAdapter) {
+    this.storage = storageAdapter;
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => this.processQueue());
-      window.addEventListener('storage', (e) => this.handleStorageChange(e));
+      window.addEventListener('storage', () => this.hydrate());
     }
+  }
+
+  async init() {
+    await this.hydrate();
   }
 
   registerAction(actionName: string, handler: ActionHandler) {
     this.actionHandlers[actionName] = handler;
   }
 
-  async query(key: string, fetcher: () => Promise<any>) {
-    if (typeof navigator !== 'undefined' && navigator.onLine) {
-      fetcher().then((data) => this.set(key, data)).catch(console.error);
-    }
-    return this.cache[key];
+  addInterceptor(fn: Interceptor) {
+    this.interceptors.beforeProcess.push(fn);
+  }
+  connectRealtimeStream(socket: WebSocket | EventSource) {
+    socket.addEventListener('message', (event) => {
+      const { key, data, timestamp } = JSON.parse(event.data);
+      const local = this.cache[key];
+      if (!local || timestamp > local.updatedAt) {
+        this.set(key, data, undefined, timestamp);
+      }
+    });
   }
 
-  mutate(cacheKey: string, optimisticData: any, actionName: string, payload: any) {
-    this.set(cacheKey, optimisticData);
+
+  async query(key: string, fetcher?: () => Promise<any>, ttlMs?: number) {
+    const item = this.cache[key];
+    
+    if (item && item.ttl && Date.now() - item.updatedAt > item.ttl) {
+      delete this.cache[key];
+      await this.persist();
+    } else if (item) {
+      if (fetcher && navigator.onLine) {
+        fetcher().then(data => this.set(key, data, ttlMs)).catch(console.error);
+      }
+      return item.data;
+    }
+
+    if (fetcher && navigator.onLine) {
+      const data = await fetcher();
+      await this.set(key, data, ttlMs);
+      return data;
+    }
+    return undefined;
+  }
+
+  async mutate(
+    cacheKey: string, 
+    optimisticData: any, 
+    actionName: string, 
+    payload: any, 
+    options: { priority?: number; ttl?: number } = {}
+  ) {
+    const rollbackData = this.cache[cacheKey]?.data;
+    await this.set(cacheKey, optimisticData, options.ttl);
+
     this.queue.push({
       id: typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(),
       action: actionName,
       payload,
-      timestamp: Date.now()
+      cacheKey,
+      rollbackData,
+      timestamp: Date.now(),
+      priority: options.priority || 0,
+      attempts: 0
     });
-    this.persist();
+    
+    this.queue.sort((a, b) => b.priority - a.priority);
+    await this.persist();
     this.processQueue();
   }
 
   subscribe(key: string, listener: Listener): () => void {
     if (!this.subscribers[key]) this.subscribers[key] = new Set();
     this.subscribers[key].add(listener);
-    if (this.cache[key] !== undefined) listener(this.cache[key]);
+    if (this.cache[key] && !this.isExpired(this.cache[key])) {
+      listener(this.cache[key].data);
+    }
     return () => this.subscribers[key].delete(listener);
   }
 
-  private set(key: string, data: any) {
-    this.cache[key] = data;
-    this.persist();
-    this.notifySubscribers(key);
+  private isExpired(item: CacheItem) {
+    return item.ttl ? Date.now() - item.updatedAt > item.ttl : false;
   }
 
-  private notifySubscribers(key: string) {
-    if (this.subscribers[key] && this.cache[key] !== undefined) {
-      this.subscribers[key].forEach(listener => listener(this.cache[key]));
-    }
-  }
-
-  private handleStorageChange(event: StorageEvent) {
-    if (event.key === this.storageKey && event.newValue) {
-      try {
-        const { cache, queue } = JSON.parse(event.newValue);
-        this.cache = cache || {};
-        this.queue = queue || [];
-        
-        Object.keys(this.subscribers).forEach((key) => {
-          this.notifySubscribers(key);
-        });
-      } catch (err) {
-        console.error('CacheNomad: Failed to sync across tabs', err);
-      }
+  private async set(key: string, data: any, ttl?: number, customTimestamp?: number) {
+    this.cache[key] = {
+      data,
+      updatedAt: customTimestamp || Date.now(),
+      ttl: ttl || this.cache[key]?.ttl
+    };
+    await this.persist();
+    if (this.subscribers[key]) {
+      this.subscribers[key].forEach(listener => listener(data));
     }
   }
 
   private async processQueue() {
-    if (typeof navigator !== 'undefined' && (!navigator.onLine || this.queue.length === 0)) return;
+    if (this.isProcessing || typeof navigator !== 'undefined' && !navigator.onLine) return;
     if (this.queue.length === 0) return;
 
-    const action = this.queue[0];
+    this.isProcessing = true;
+    let action = this.queue[0];
     const handler = this.actionHandlers[action.action];
 
     if (handler) {
       try {
+        for (const interceptor of this.interceptors.beforeProcess) {
+          const modified = await interceptor(action);
+          if (!modified) {
+             this.queue.shift();
+             return this.resumeQueue();
+          }
+          action = modified;
+        }
+
         await handler(action.payload);
+
         this.queue.shift();
-        this.persist();
-        this.processQueue();
-      } catch (err) {
-        console.error(`CacheNomad: Action ${action.action} failed. Will retry.`, err);
+        await this.persist();
+        
+      } catch (err: any) {
+        action.attempts += 1;
+        
+        if (err.status >= 400 && err.status < 500) {
+          console.warn(`Nomad: Permanent failure. Rolling back ${action.cacheKey}`);
+          await this.set(action.cacheKey, action.rollbackData);
+          this.queue.shift();
+        } else {
+          const backoff = Math.min(Math.pow(2, action.attempts) * 1000, 30000);
+          console.warn(`Nomad: Network error. Retrying in ${backoff}ms...`);
+          await new Promise(res => setTimeout(res, backoff));
+        }
+        await this.persist();
       }
     }
+    this.resumeQueue();
   }
 
-  private persist() {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(this.storageKey, JSON.stringify({
-        cache: this.cache,
-        queue: this.queue
-      }));
-    }
+  private resumeQueue() {
+    this.isProcessing = false;
+    if (this.queue.length > 0) this.processQueue();
   }
 
-  private hydrate() {
-    if (typeof localStorage !== 'undefined') {
-      const stored = localStorage.getItem(this.storageKey);
-      if (stored) {
-        const { cache, queue } = JSON.parse(stored);
-        this.cache = cache || {};
-        this.queue = queue || [];
+  private async persist() {
+    await this.storage.set('cache-nomad-data', JSON.stringify({ cache: this.cache, queue: this.queue }));
+  }
+
+  private async hydrate() {
+    const stored = await this.storage.get('cache-nomad-data');
+    if (stored) {
+      const { cache, queue } = JSON.parse(stored);
+      this.cache = cache || {};
+      this.queue = queue || [];
+      
+      for (const key in this.cache) {
+        if (this.isExpired(this.cache[key])) delete this.cache[key];
       }
     }
   }
 }
-
-export const nomad = new CacheNomad();

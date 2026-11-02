@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-11-02
+
+### Added
+- **Pluggable Storage Adapters:** Switched from hardcoded `localStorage` to an async adapter pattern.
+- **IndexedDB Adapter:** Exported a native `IndexedDBAdapter` to handle hundreds of megabytes of offline data without blocking the UI thread.
+- **Middleware Interceptors:** Added `nomad.addInterceptor()` to modify queued actions (like injecting auth tokens) right before they process.
+- **Automatic Rollbacks:** Optimistic mutations now automatically revert to the previous known-good state if the server responds with a 4xx error.
+- **Exponential Backoff:** Failed network requests now automatically retry with exponential delays (1s, 2s, 4s, etc.) to prevent server overload.
+- **Queue Prioritization:** Added a `priority` flag to `mutate()` options to ensure critical actions process before background tasks.
+- **Garbage Collection (TTL):** Added a `ttl` option to query and mutate. Expired cache data is now automatically purged on startup.
+- **Real-Time WebSocket Bridge:** Added `connectRealtimeStream()` to support Last-Write-Wins CRDT-style syncing from Server-Sent Events or WebSockets.
+
+### Changed (Breaking)
+- **Async Initialization:** You must now pass a storage adapter to the constructor (e.g., `new CacheNomad(new IndexedDBAdapter())`) and await `nomad.init()` before querying data.
+- **React Adapter API:** The `useNomad` hook now requires passing the instantiated `nomad` object as its first argument, and exports an `isReady` boolean to track async storage initialization.
+
 ## [1.6.0] - 2026-10-21
 
 ### Added

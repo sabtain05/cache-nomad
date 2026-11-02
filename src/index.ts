@@ -56,7 +56,8 @@ export class CacheNomad {
   }
   connectRealtimeStream(socket: WebSocket | EventSource) {
     socket.addEventListener('message', (event) => {
-      const { key, data, timestamp } = JSON.parse(event.data);
+      const messageEvent = event as MessageEvent;
+      const { key, data, timestamp } = JSON.parse(messageEvent.data);
       const local = this.cache[key];
       if (!local || timestamp > local.updatedAt) {
         this.set(key, data, undefined, timestamp);

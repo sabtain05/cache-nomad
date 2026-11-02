@@ -1,5 +1,5 @@
-import { CacheNomad } from 'cache-nomad';
-import { IndexedDBAdapter } from 'cache-nomad/adapters';
+import { CacheNomad } from './index';
+import { IndexedDBAdapter } from './adapters';
 
 export const nomad = new CacheNomad(new IndexedDBAdapter());
 

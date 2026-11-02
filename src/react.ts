@@ -1,28 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
-import { nomad } from './index';
+import { CacheNomad } from './index';
 
-export function useNomad<T = any>(key: string, fetcher?: () => Promise<T>) {
-    const [data, setData] = useState<T | undefined>(undefined);
+export function useNomad<T = any>(nomadInstance: CacheNomad, key: string, fetcher?: () => Promise<T>, ttl?: number) {
+  const [data, setData] = useState<T | undefined>(undefined);
+  const [isReady, setIsReady] = useState(false);
 
-    useEffect(() => {
-        const unsubscribe = nomad.subscribe(key, (newData: T) => {
-            setData(newData);
-        });
+  useEffect(() => {
+    nomadInstance.init().then(() => {
+      setIsReady(true);
+      if (fetcher) nomadInstance.query(key, fetcher, ttl);
+    });
 
-        if (fetcher) {
-            nomad.query(key, fetcher);
-        }
-        return () => {
-            unsubscribe();
-        };
-    }, [key]);
+    const unsubscribe = nomadInstance.subscribe(key, (newData: T) => setData(newData));
+    return () => unsubscribe();
+  }, [key, nomadInstance]);
 
-    const mutate = useCallback(
-        (optimisticData: T, actionName: string, payload: any) => {
-            nomad.mutate(key, optimisticData, actionName, payload);
-        },
-        [key]
-    );
+  const mutate = useCallback(
+    (optimisticData: T, actionName: string, payload: any, priority = 0) => {
+      nomadInstance.mutate(key, optimisticData, actionName, payload, { priority, ttl });
+    },
+    [key, nomadInstance, ttl]
+  );
 
-    return { data, mutate };
+  return { data, mutate, isReady };
 }
